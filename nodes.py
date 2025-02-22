@@ -447,43 +447,51 @@ class RestoreDetail:
     def INPUT_TYPES(s):
         return {
             "required": {
-                "images": ("IMAGE", ),
-                "detail": ("IMAGE", ),
+                "images": ("IMAGE",),
+                "detail": ("IMAGE",),
                 "mode": (["add", "multiply"],),
                 "blur_type": (["blur", "guidedFilter"],),
                 "blur_size": ("INT", {"default": 1, "min": 1, "max": 1023}),
-                "factor": ("FLOAT", {"default": 1.0, "min": -10.0, "max": 10.0, "step": 0.01,  "round": 0.01}),
+                "factor": ("FLOAT", {"default": 1.0, "min": -10.0, "max": 10.0, "step": 0.01, "round": 0.01}),
+            },
+            "optional": {
+                "mask": ("IMAGE",),  # Optional mask
             },
         }
 
     RETURN_TYPES = ("IMAGE",)
     FUNCTION = "batch_normalize"
-
     CATEGORY = "image/filters"
 
-    def batch_normalize(self, images, detail, mode, blur_type, blur_size, factor):
+    def batch_normalize(self, images, detail, mode, blur_type, blur_size, factor, mask=None):
         t = images.detach().clone() + 0.1
         ref = detail.detach().clone() + 0.1
-        
+
         if ref.shape[0] < t.shape[0]:
             ref = ref[0].unsqueeze(0).repeat(t.shape[0], 1, 1, 1)
-        
+
         d = blur_size * 2 + 1
-        
+
         if blur_type == "blur":
             blurred = cv_blur_tensor(t, d, d)
             blurred_ref = cv_blur_tensor(ref, d, d)
         elif blur_type == "guidedFilter":
             blurred = guided_filter_tensor(t, t, d, 0.01)
             blurred_ref = guided_filter_tensor(ref, ref, d, 0.01)
-        
+
         if mode == "multiply":
             t = (ref / blurred_ref) * blurred
         else:
             t = (ref - blurred_ref) + blurred
-        
+
         t = t - 0.1
         t = torch.clamp(torch.lerp(images, t, factor), 0, 1)
+
+        # Apply mask if provided
+        if mask is not None:
+            mask = mask.expand_as(t)  # Ensure mask has the same shape
+            t = t * mask + images * (1 - mask)
+
         return (t,)
 
 class DilateErodeMask:
